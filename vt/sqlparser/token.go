@@ -111,7 +111,7 @@ var keywords = map[string]int{
 	"boolean":             BOOLEAN,
 	"both":                UNUSED,
 	"by":                  BY,
-	"call":                UNUSED,
+	"call":                CALL,
 	"cascade":             CASCADE,
 	"case":                CASE,
 	"cast":                CAST,
