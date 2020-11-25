@@ -205,6 +205,9 @@ func skipToEnd(yylex interface{}) {
 // Match
 %token <bytes> MATCH AGAINST BOOLEAN LANGUAGE WITH QUERY EXPANSION
 
+// Subquery Function
+%token <bytes> ANY SOME
+
 // MySQL reserved words that are unused by this grammar will map to this token.
 %token <bytes> UNUSED ARRAY CUME_DIST DESCRIPTION DENSE_RANK EMPTY EXCEPT FIRST_VALUE GROUPING GROUPS JSON_TABLE LAG LAST_VALUE LATERAL LEAD MEMBER
 %token <bytes> NTH_VALUE NTILE OF OVER PERCENT_RANK RANK RECURSIVE ROW_NUMBER SYSTEM WINDOW
@@ -2794,6 +2797,18 @@ function_call_keyword:
   {
   $$ = &MatchExpr{Columns: $3, Expr: $7, Option: $8}
   }
+| ANY subquery
+  {
+    $$ = &SubqueryFuncExpr{FuncName: "any", Subquery: $2}
+  }
+| SOME subquery
+  {
+    $$ = &SubqueryFuncExpr{FuncName: "some", Subquery: $2}
+  }
+| ALL subquery
+  {
+    $$ = &SubqueryFuncExpr{FuncName: "all", Subquery: $2}
+  }
 | GROUP_CONCAT openb distinct_opt select_expression_list order_by_opt separator_opt limit_opt closeb
   {
     $$ = &GroupConcatExpr{Distinct: $3, Exprs: $4, OrderBy: $5, Separator: $6, Limit: $7}
@@ -3553,6 +3568,8 @@ reserved_keyword:
 | LOCK
 | MEMBER
 | MATCH
+| ANY
+| SOME
 | MAXVALUE
 | MOD
 | NATURAL

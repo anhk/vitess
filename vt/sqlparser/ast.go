@@ -743,6 +743,11 @@ type (
 		Else  Expr
 	}
 
+	SubqueryFuncExpr struct {
+		FuncName string
+		Subquery *Subquery
+	}
+
 	// Default represents a DEFAULT expression.
 	Default struct {
 		ColName string
@@ -793,6 +798,7 @@ func (*ConvertUsingExpr) iExpr()  {}
 func (*MatchExpr) iExpr()         {}
 func (*GroupConcatExpr) iExpr()   {}
 func (*Default) iExpr()           {}
+func (*SubqueryFuncExpr) iExpr()  {}
 
 // Exprs represents a list of value expressions.
 // It's not a valid expression because it's not parenthesized.
@@ -1758,6 +1764,11 @@ func (node *CaseExpr) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "else %v ", node.Else)
 	}
 	buf.astPrintf(node, "end")
+}
+
+func (node *SubqueryFuncExpr) Format(buf *TrackedBuffer) {
+	buf.astPrintf(node, "%s", node.FuncName)
+	buf.astPrintf(node, "%v", node.Subquery)
 }
 
 // Format formats the node.
