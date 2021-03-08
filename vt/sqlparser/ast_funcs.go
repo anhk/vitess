@@ -79,6 +79,16 @@ type IndexColumn struct {
 	Length *SQLVal
 }
 
+func (c *IndexColumn) Clone() *IndexColumn {
+	newNode := &IndexColumn{
+		Column: c.Column.Clone(),
+	}
+	if c.Length != nil {
+		newNode.Length = c.Length.CloneAsExpr().(*SQLVal)
+	}
+	return newNode
+}
+
 // LengthScaleOption is used for types that have an optional length
 // and scale
 type LengthScaleOption struct {
@@ -91,6 +101,17 @@ type IndexOption struct {
 	Name  string
 	Value *SQLVal
 	Using string
+}
+
+func (o IndexOption) Clone() *IndexOption {
+	newNode := &IndexOption{
+		Name:  o.Name,
+		Using: o.Using,
+	}
+	if o.Value != nil {
+		newNode.Value = o.Value.CloneAsExpr().(*SQLVal)
+	}
+	return newNode
 }
 
 // ColumnKeyOption indicates whether or not the given column is defined as an
@@ -127,6 +148,17 @@ type ShowTablesOpt struct {
 	Full   string
 	DbName string
 	Filter *ShowFilter
+}
+
+func (o *ShowTablesOpt) Clone() *ShowTablesOpt {
+	newNode := &ShowTablesOpt{
+		Full:   o.Full,
+		DbName: o.DbName,
+	}
+	if o.Filter != nil {
+		newNode.Filter = o.Filter.Clone()
+	}
+	return newNode
 }
 
 // ValType specifies the type for SQLVal.
