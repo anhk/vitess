@@ -40,6 +40,7 @@ type (
 	// Statement represents a statement.
 	Statement interface {
 		iStatement()
+		CloneAsStatement() Statement
 		SQLNode
 	}
 
@@ -51,6 +52,8 @@ type (
 		AddOrder(*Order)
 		SetLimit(*Limit)
 		SetLock(lock string)
+		CloneAsStatement() Statement
+		CloneAsInsertRows() InsertRows
 		SQLNode
 	}
 
@@ -153,6 +156,7 @@ type (
 	// Characteristic is a transaction related change
 	Characteristic interface {
 		SQLNode
+		Clone() Characteristic
 		iChar()
 	}
 
@@ -300,6 +304,7 @@ func (*ParenSelect) iStatement() {}
 // InsertRows represents the rows for an INSERT statement.
 type InsertRows interface {
 	iInsertRows()
+	CloneAsInsertRows() InsertRows
 	SQLNode
 }
 
@@ -418,6 +423,7 @@ type (
 	ConstraintInfo interface {
 		SQLNode
 		iConstraintInfo()
+		Clone() ConstraintInfo
 	}
 
 	// ForeignKeyDefinition describes a foreign key in a CREATE TABLE statement
@@ -446,6 +452,7 @@ type (
 	// SelectExpr represents a SELECT expression.
 	SelectExpr interface {
 		iSelectExpr()
+		Clone() SelectExpr
 		SQLNode
 	}
 
@@ -483,6 +490,7 @@ type (
 	// TableExpr represents a table expression.
 	TableExpr interface {
 		iTableExpr()
+		Clone() TableExpr
 		SQLNode
 	}
 
@@ -518,6 +526,7 @@ type (
 	// SimpleTableExpr represents a simple table expression.
 	SimpleTableExpr interface {
 		iSimpleTableExpr()
+		CloneAsSimpleTableExpr() SimpleTableExpr
 		SQLNode
 	}
 
@@ -566,6 +575,7 @@ type (
 	// Expr represents an expression.
 	Expr interface {
 		iExpr()
+		CloneAsExpr() Expr
 		SQLNode
 	}
 
@@ -641,6 +651,7 @@ type (
 	// It can be ValTuple, Subquery, ListArg.
 	ColTuple interface {
 		iColTuple()
+		CloneAsColTuple() ColTuple
 		Expr
 	}
 
@@ -904,9 +915,55 @@ func (node *Select) Format(buf *TrackedBuffer) {
 		node.Limit, node.Lock)
 }
 
+// CloneAsStatement
+func (node *Select) Clone() *Select {
+	newNode := &Select{
+		Cache:            node.Cache,
+		Distinct:         node.Distinct,
+		StraightJoinHint: node.StraightJoinHint,
+		SQLCalcFoundRows: node.SQLCalcFoundRows,
+		Comments:         node.Comments.Clone(),
+		SelectExprs:      node.SelectExprs.Clone(),
+		From:             node.From.Clone(),
+		GroupBy:          node.GroupBy.Clone(),
+		OrderBy:          node.OrderBy.Clone(),
+		Lock:             node.Lock,
+	}
+	if node.Where != nil {
+		newNode.Where = node.Where.Clone()
+	}
+	if node.Having != nil {
+		newNode.Having = node.Having.Clone()
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.Clone()
+	}
+	return newNode
+}
+
+// CloneAsStatement
+func (node *Select) CloneAsStatement() Statement {
+	return node.Clone()
+}
+
+// CloneAsInsertRows
+func (node *Select) CloneAsInsertRows() InsertRows {
+	return node.Clone()
+}
+
 // Format formats the node.
 func (node *ParenSelect) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "(%v)", node.Select)
+}
+
+// CloneAsStatement
+func (node *ParenSelect) CloneAsStatement() Statement {
+	return &ParenSelect{Select: node.Select.CloneAsStatement().(SelectStatement)}
+}
+
+// CloneAsInsertRows
+func (node *ParenSelect) CloneAsInsertRows() InsertRows {
+	return &ParenSelect{Select: node.Select.CloneAsInsertRows().(SelectStatement)}
 }
 
 // Format formats the node.
@@ -918,15 +975,59 @@ func (node *Union) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v%v%s", node.OrderBy, node.Limit, node.Lock)
 }
 
+func (node *Union) Clone() *Union {
+	newNode := &Union{
+		OrderBy: node.OrderBy.Clone(),
+		Lock:    node.Lock,
+	}
+	if node.FirstStatement != nil {
+		newNode.FirstStatement = node.FirstStatement.CloneAsStatement().(SelectStatement)
+	}
+	for _, v := range node.UnionSelects {
+		newNode.UnionSelects = append(newNode.UnionSelects, v.Clone())
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.Clone()
+	}
+	return newNode
+}
+
+// CloneAsStatement
+func (node *Union) CloneAsStatement() Statement {
+	return node.Clone()
+}
+
+// CloneAsInsertRows
+func (node *Union) CloneAsInsertRows() InsertRows {
+	return node.Clone()
+}
+
 // Format formats the node.
 func (node *UnionSelect) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, " %s %v", node.Type, node.Statement)
+}
+
+func (node *UnionSelect) Clone() *UnionSelect {
+	newNode := &UnionSelect{Type: node.Type}
+	if node.Statement != nil {
+		newNode.Statement = node.Statement.CloneAsStatement().(SelectStatement)
+	}
+	return newNode
 }
 
 // Format formats the node.
 func (node *Stream) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "stream %v%v from %v",
 		node.Comments, node.SelectExpr, node.Table)
+}
+
+// CloneAsStatement
+func (node *Stream) CloneAsStatement() Statement {
+	return &Stream{
+		Comments:   node.Comments.Clone(),
+		Table:      node.Table.CloneAsSimpleTableExpr().(TableName),
+		SelectExpr: node.SelectExpr.Clone(),
+	}
 }
 
 // Format formats the node.
@@ -937,11 +1038,43 @@ func (node *Insert) Format(buf *TrackedBuffer) {
 		node.Table, node.Partitions, node.Columns, node.Rows, node.OnDup)
 }
 
+// CloneAsStatement
+func (node *Insert) CloneAsStatement() Statement {
+	return &Insert{
+		Action:     node.Action,
+		Comments:   node.Comments.Clone(),
+		Ignore:     node.Ignore,
+		Table:      node.Table.CloneAsSimpleTableExpr().(TableName),
+		Partitions: node.Partitions.Clone(),
+		Columns:    node.Columns.Clone(),
+		Rows:       node.Rows.CloneAsInsertRows(),
+		OnDup:      node.OnDup.Clone(),
+	}
+}
+
 // Format formats the node.
 func (node *Update) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "update %v%s%v set %v%v%v%v",
 		node.Comments, node.Ignore, node.TableExprs,
 		node.Exprs, node.Where, node.OrderBy, node.Limit)
+}
+
+// CloneAsStatement
+func (node *Update) CloneAsStatement() Statement {
+	newNode := &Update{
+		Comments:   node.Comments.Clone(),
+		Ignore:     node.Ignore,
+		TableExprs: node.TableExprs.Clone(),
+		Exprs:      node.Exprs.Clone(),
+		OrderBy:    node.OrderBy.Clone(),
+	}
+	if node.Where != nil {
+		newNode.Where = node.Where.Clone()
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.Clone()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -953,9 +1086,35 @@ func (node *Delete) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "from %v%v%v%v%v", node.TableExprs, node.Partitions, node.Where, node.OrderBy, node.Limit)
 }
 
+// CloneAsStatement
+func (node *Delete) CloneAsStatement() Statement {
+	newNode := &Delete{
+		Comments:   node.Comments.Clone(),
+		Targets:    node.Targets.Clone(),
+		TableExprs: node.TableExprs.Clone(),
+		Partitions: node.Partitions.Clone(),
+		OrderBy:    node.OrderBy.Clone(),
+	}
+	if node.Where != nil {
+		newNode.Where = node.Where.Clone()
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.Clone()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *Set) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "set %v%v", node.Comments, node.Exprs)
+}
+
+// CloneAsStatement
+func (node *Set) CloneAsStatement() Statement {
+	return &Set{
+		Comments: node.Comments.Clone(),
+		Exprs:    node.Exprs.Clone(),
+	}
 }
 
 // Format formats the node.
@@ -974,6 +1133,18 @@ func (node *SetTransaction) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsStatement
+func (node *SetTransaction) CloneAsStatement() Statement {
+	newNode := &SetTransaction{
+		Comments: node.Comments.Clone(),
+		Scope:    node.Scope,
+	}
+	for _, v := range node.Characteristics {
+		newNode.Characteristics = append(newNode.Characteristics, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *DBDDL) Format(buf *TrackedBuffer) {
 	switch node.Action {
@@ -985,6 +1156,17 @@ func (node *DBDDL) Format(buf *TrackedBuffer) {
 			exists = " if exists"
 		}
 		buf.WriteString(fmt.Sprintf("%s database%s %v", node.Action, exists, node.DBName))
+	}
+}
+
+// CloneAsStatement
+func (node *DBDDL) CloneAsStatement() Statement {
+	return &DBDDL{
+		Action:   node.Action,
+		DBName:   node.DBName,
+		IfExists: node.IfExists,
+		Collate:  node.Collate,
+		Charset:  node.Charset,
 	}
 }
 
@@ -1050,9 +1232,43 @@ func (node *DDL) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsStatement
+func (node *DDL) CloneAsStatement() Statement {
+	newNode := &DDL{
+		Action:     node.Action,
+		FromTables: node.FromTables.Clone(),
+		ToTables:   node.ToTables.Clone(),
+		Table:      node.Table.CloneAsSimpleTableExpr().(TableName),
+		IfExists:   node.IfExists,
+	}
+	if node.TableSpec != nil {
+		newNode.TableSpec = node.TableSpec.Clone()
+	}
+	if node.OptLike != nil {
+		newNode.OptLike = node.OptLike.Clone()
+	}
+	if node.PartitionSpec != nil {
+		newNode.PartitionSpec = node.PartitionSpec.Clone()
+	}
+	if node.VindexSpec != nil {
+		newNode.VindexSpec = node.VindexSpec.Clone()
+	}
+	for _, v := range node.VindexCols {
+		newNode.VindexCols = append(newNode.VindexCols, v.Clone())
+	}
+	if node.AutoIncSpec != nil {
+		newNode.AutoIncSpec = node.AutoIncSpec.Clone()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *OptLike) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "like %v", node.LikeTable)
+}
+
+func (node *OptLike) Clone() *OptLike {
+	return &OptLike{LikeTable: node.LikeTable.CloneAsSimpleTableExpr().(TableName)}
 }
 
 // Format formats the node.
@@ -1071,6 +1287,17 @@ func (node *PartitionSpec) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *PartitionSpec) Clone() *PartitionSpec {
+	newNode := &PartitionSpec{
+		Action: node.Action,
+		Name:   node.Name.Clone(),
+	}
+	for _, v := range node.Definitions {
+		newNode.Definitions = append(newNode.Definitions, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node
 func (node *PartitionDefinition) Format(buf *TrackedBuffer) {
 	if !node.Maxvalue {
@@ -1078,6 +1305,17 @@ func (node *PartitionDefinition) Format(buf *TrackedBuffer) {
 	} else {
 		buf.astPrintf(node, "partition %v values less than (maxvalue)", node.Name)
 	}
+}
+
+func (node *PartitionDefinition) Clone() *PartitionDefinition {
+	newNode := &PartitionDefinition{
+		Name:     node.Name.Clone(),
+		Maxvalue: node.Maxvalue,
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.CloneAsExpr()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1100,9 +1338,44 @@ func (ts *TableSpec) Format(buf *TrackedBuffer) {
 	buf.astPrintf(ts, "\n)%s", strings.Replace(ts.Options, ", ", ",\n  ", -1))
 }
 
+func (ts *TableSpec) Clone() *TableSpec {
+	newNode := &TableSpec{
+		Options: ts.Options,
+	}
+	for _, v := range ts.Columns {
+		if v == nil {
+			newNode.Columns = append(newNode.Columns, nil)
+		} else {
+			newNode.Columns = append(newNode.Columns, v.Clone())
+		}
+	}
+	for _, v := range ts.Indexes {
+		if v == nil {
+			newNode.Indexes = append(newNode.Indexes, nil)
+		} else {
+			newNode.Indexes = append(newNode.Indexes, v.Clone())
+		}
+	}
+	for _, v := range ts.Constraints {
+		if v == nil {
+			newNode.Constraints = append(newNode.Constraints, nil)
+		} else {
+			newNode.Constraints = append(newNode.Constraints, v.Clone())
+		}
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (col *ColumnDefinition) Format(buf *TrackedBuffer) {
 	buf.astPrintf(col, "%v %v", col.Name, &col.Type)
+}
+
+func (col *ColumnDefinition) Clone() *ColumnDefinition {
+	return &ColumnDefinition{
+		Name: col.Name.Clone(),
+		Type: *col.Type.Clone(),
+	}
 }
 
 // Format returns a canonical string representation of the type and all relevant options
@@ -1169,6 +1442,38 @@ func (ct *ColumnType) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (ct *ColumnType) Clone() *ColumnType {
+	newNode := &ColumnType{
+		Type:          ct.Type,
+		NotNull:       ct.NotNull,
+		Autoincrement: ct.Autoincrement,
+		Unsigned:      ct.Unsigned,
+		Zerofill:      ct.Zerofill,
+		Charset:       ct.Charset,
+		Collate:       ct.Collate,
+		KeyOpt:        ct.KeyOpt,
+	}
+	if ct.Default != nil {
+		newNode.Default = ct.Default.CloneAsExpr()
+	}
+	if ct.OnUpdate != nil {
+		newNode.OnUpdate = ct.OnUpdate.CloneAsExpr()
+	}
+	if ct.Comment != nil {
+		newNode.Comment = ct.Comment.CloneAsExpr().(*SQLVal)
+	}
+	if ct.Length != nil {
+		newNode.Length = ct.Length.CloneAsExpr().(*SQLVal)
+	}
+	if ct.Scale != nil {
+		newNode.Scale = ct.Scale.CloneAsExpr().(*SQLVal)
+	}
+	for _, v := range ct.EnumValues {
+		newNode.EnumValues = append(newNode.EnumValues, v)
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (idx *IndexDefinition) Format(buf *TrackedBuffer) {
 	buf.astPrintf(idx, "%v (", idx.Info)
@@ -1194,6 +1499,28 @@ func (idx *IndexDefinition) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (idx *IndexDefinition) Clone() *IndexDefinition {
+	newNode := &IndexDefinition{}
+	if idx.Info != nil {
+		newNode.Info = idx.Info.Clone()
+	}
+	for _, v := range idx.Options {
+		if v == nil {
+			newNode.Options = append(newNode.Options, nil)
+		} else {
+			newNode.Options = append(newNode.Options, v.Clone())
+		}
+	}
+	for _, v := range idx.Columns {
+		if v == nil {
+			newNode.Columns = append(newNode.Columns, nil)
+		} else {
+			newNode.Columns = append(newNode.Columns, v.Clone())
+		}
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (ii *IndexInfo) Format(buf *TrackedBuffer) {
 	if ii.Primary {
@@ -1206,10 +1533,27 @@ func (ii *IndexInfo) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (ii *IndexInfo) Clone() *IndexInfo {
+	return &IndexInfo{
+		Type:    ii.Type,
+		Name:    ii.Name.Clone(),
+		Primary: ii.Primary,
+		Spatial: ii.Spatial,
+		Unique:  ii.Unique,
+	}
+}
+
 // Format formats the node.
 func (node *AutoIncSpec) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v ", node.Column)
 	buf.astPrintf(node, "using %v", node.Sequence)
+}
+
+func (node *AutoIncSpec) Clone() *AutoIncSpec {
+	return &AutoIncSpec{
+		Column:   node.Column.Clone(),
+		Sequence: node.Sequence.CloneAsSimpleTableExpr().(TableName),
+	}
 }
 
 // Format formats the node. The "CREATE VINDEX" preamble was formatted in
@@ -1230,9 +1574,27 @@ func (node *VindexSpec) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *VindexSpec) Clone() *VindexSpec {
+	newNode := &VindexSpec{
+		Name: node.Name.Clone(),
+		Type: node.Type.Clone(),
+	}
+	for _, v := range node.Params {
+		newNode.Params = append(newNode.Params, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node VindexParam) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%s=%s", node.Key.String(), node.Val)
+}
+
+func (node VindexParam) Clone() VindexParam {
+	return VindexParam{
+		Key: node.Key.Clone(),
+		Val: node.Val,
+	}
 }
 
 // Format formats the node.
@@ -1241,6 +1603,13 @@ func (c *ConstraintDefinition) Format(buf *TrackedBuffer) {
 		buf.astPrintf(c, "constraint %s ", c.Name)
 	}
 	c.Details.Format(buf)
+}
+
+func (c *ConstraintDefinition) Clone() *ConstraintDefinition {
+	return &ConstraintDefinition{
+		Name:    c.Name,
+		Details: c.Details.Clone(),
+	}
 }
 
 // Format formats the node.
@@ -1267,6 +1636,17 @@ func (f *ForeignKeyDefinition) Format(buf *TrackedBuffer) {
 	}
 	if f.OnUpdate != DefaultAction {
 		buf.astPrintf(f, " on update %v", f.OnUpdate)
+	}
+}
+
+// Clone
+func (f *ForeignKeyDefinition) Clone() ConstraintInfo {
+	return &ForeignKeyDefinition{
+		Source:            f.Source.Clone(),
+		ReferencedTable:   f.ReferencedTable.CloneAsSimpleTableExpr().(TableName),
+		ReferencedColumns: f.ReferencedColumns.Clone(),
+		OnDelete:          f.OnDelete,
+		OnUpdate:          f.OnUpdate,
 	}
 }
 
@@ -1311,6 +1691,24 @@ func (node *Show) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsStatement
+func (node *Show) CloneAsStatement() Statement {
+	newNode := &Show{
+		Extended: node.Extended,
+		Type:     node.Type,
+		OnTable:  node.OnTable.CloneAsSimpleTableExpr().(TableName),
+		Table:    node.Table.CloneAsSimpleTableExpr().(TableName),
+		Scope:    node.Scope,
+	}
+	if node.ShowTablesOpt != nil {
+		newNode.ShowTablesOpt = node.ShowTablesOpt.Clone()
+	}
+	if node.ShowCollationFilterOpt != nil {
+		newNode.ShowCollationFilterOpt = node.ShowCollationFilterOpt.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *ShowFilter) Format(buf *TrackedBuffer) {
 	if node == nil {
@@ -1323,6 +1721,14 @@ func (node *ShowFilter) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *ShowFilter) Clone() *ShowFilter {
+	newNode := &ShowFilter{Like: node.Like}
+	if node.Filter != nil {
+		newNode.Filter = node.Filter.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *Use) Format(buf *TrackedBuffer) {
 	if node.DBName.v != "" {
@@ -1332,9 +1738,19 @@ func (node *Use) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsStatement
+func (node *Use) CloneAsStatement() Statement {
+	return &Use{DBName: node.DBName.Clone()}
+}
+
 // Format formats the node.
 func (node *Commit) Format(buf *TrackedBuffer) {
 	buf.WriteString("commit")
+}
+
+// CloneAsStatement
+func (node *Commit) CloneAsStatement() Statement {
+	return &Commit{}
 }
 
 // Format formats the node.
@@ -1342,9 +1758,19 @@ func (node *Begin) Format(buf *TrackedBuffer) {
 	buf.WriteString("begin")
 }
 
+// CloneAsStatement
+func (node *Begin) CloneAsStatement() Statement {
+	return &Begin{}
+}
+
 // Format formats the node.
 func (node *Rollback) Format(buf *TrackedBuffer) {
 	buf.WriteString("rollback")
+}
+
+// CloneAsStatement
+func (node *Rollback) CloneAsStatement() Statement {
+	return &Rollback{}
 }
 
 // Format formats the node.
@@ -1352,14 +1778,29 @@ func (node *SRollback) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "rollback to %v", node.Name)
 }
 
+// CloneAsStatement
+func (node *SRollback) CloneAsStatement() Statement {
+	return &SRollback{Name: node.Name.Clone()}
+}
+
 // Format formats the node.
 func (node *Savepoint) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "savepoint %v", node.Name)
 }
 
+// CloneAsStatement
+func (node *Savepoint) CloneAsStatement() Statement {
+	return &Savepoint{Name: node.Name.Clone()}
+}
+
 // Format formats the node.
 func (node *Release) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "release savepoint %v", node.Name)
+}
+
+// CloneAsStatement
+func (node *Release) CloneAsStatement() Statement {
+	return &Release{Name: node.Name.Clone()}
 }
 
 // Format formats the node.
@@ -1375,9 +1816,23 @@ func (node *Explain) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "explain %s%v", format, node.Statement)
 }
 
+// CloneAsStatement
+func (node *Explain) CloneAsStatement() Statement {
+	newNode := &Explain{Type: node.Type}
+	if node.Statement != nil {
+		newNode.Statement = node.Statement.CloneAsStatement()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *OtherRead) Format(buf *TrackedBuffer) {
 	buf.WriteString("otherread")
+}
+
+// CloneAsStatement
+func (node *OtherRead) CloneAsStatement() Statement {
+	return &OtherRead{}
 }
 
 // Format formats the node.
@@ -1385,11 +1840,27 @@ func (node *OtherAdmin) Format(buf *TrackedBuffer) {
 	buf.WriteString("otheradmin")
 }
 
+// CloneAsStatement
+func (node *OtherAdmin) CloneAsStatement() Statement {
+	return &OtherAdmin{}
+}
+
 // Format formats the node.
 func (node Comments) Format(buf *TrackedBuffer) {
 	for _, c := range node {
 		buf.astPrintf(node, "%s ", c)
 	}
+}
+
+func (node Comments) Clone() Comments {
+	if node == nil {
+		return nil
+	}
+	newNode := Comments{}
+	for _, v := range node {
+		newNode = append(newNode, v)
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1401,12 +1872,28 @@ func (node SelectExprs) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node SelectExprs) Clone() SelectExprs {
+	if node == nil {
+		return nil
+	}
+	newNode := SelectExprs{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *StarExpr) Format(buf *TrackedBuffer) {
 	if !node.TableName.IsEmpty() {
 		buf.astPrintf(node, "%v.", node.TableName)
 	}
 	buf.astPrintf(node, "*")
+}
+
+// Clone
+func (node *StarExpr) Clone() SelectExpr {
+	return &StarExpr{TableName: node.TableName.CloneAsSimpleTableExpr().(TableName)}
 }
 
 // Format formats the node.
@@ -1417,9 +1904,27 @@ func (node *AliasedExpr) Format(buf *TrackedBuffer) {
 	}
 }
 
+// Clone
+func (node *AliasedExpr) Clone() SelectExpr {
+	newNode := &AliasedExpr{As: node.As.Clone()}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node Nextval) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "next %v values", node.Expr)
+}
+
+// Clone
+func (node Nextval) Clone() SelectExpr {
+	newNode := &Nextval{}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1435,6 +1940,17 @@ func (node Columns) Format(buf *TrackedBuffer) {
 	buf.WriteString(")")
 }
 
+func (node Columns) Clone() Columns {
+	if node == nil {
+		return nil
+	}
+	newNode := Columns{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node
 func (node Partitions) Format(buf *TrackedBuffer) {
 	if node == nil {
@@ -1448,6 +1964,17 @@ func (node Partitions) Format(buf *TrackedBuffer) {
 	buf.WriteString(")")
 }
 
+func (node Partitions) Clone() Partitions {
+	if node == nil {
+		return nil
+	}
+	newNode := Partitions{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node TableExprs) Format(buf *TrackedBuffer) {
 	var prefix string
@@ -1455,6 +1982,17 @@ func (node TableExprs) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s%v", prefix, n)
 		prefix = ", "
 	}
+}
+
+func (node TableExprs) Clone() TableExprs {
+	if node == nil {
+		return nil
+	}
+	newNode := TableExprs{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1469,6 +2007,21 @@ func (node *AliasedTableExpr) Format(buf *TrackedBuffer) {
 	}
 }
 
+// Clone
+func (node *AliasedTableExpr) Clone() TableExpr {
+	newNode := &AliasedTableExpr{
+		Partitions: node.Partitions.Clone(),
+		As:         node.As.Clone(),
+	}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsSimpleTableExpr()
+	}
+	if node.Hints != nil {
+		newNode.Hints = node.Hints.Clone()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node TableNames) Format(buf *TrackedBuffer) {
 	var prefix string
@@ -1476,6 +2029,17 @@ func (node TableNames) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s%v", prefix, n)
 		prefix = ", "
 	}
+}
+
+func (node TableNames) Clone() TableNames {
+	if node == nil {
+		return nil
+	}
+	newNode := TableNames{}
+	for _, v := range node {
+		newNode = append(newNode, v.CloneAsSimpleTableExpr().(TableName))
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1489,9 +2053,22 @@ func (node TableName) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v", node.Name)
 }
 
+// Clone
+func (node TableName) CloneAsSimpleTableExpr() SimpleTableExpr {
+	return TableName{
+		Name:      node.Name.Clone(),
+		Qualifier: node.Qualifier.Clone(),
+	}
+}
+
 // Format formats the node.
 func (node *ParenTableExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "(%v)", node.Exprs)
+}
+
+// Clone
+func (node *ParenTableExpr) Clone() TableExpr {
+	return &ParenTableExpr{Exprs: node.Exprs.Clone()}
 }
 
 // Format formats the node.
@@ -1504,9 +2081,34 @@ func (node JoinCondition) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node JoinCondition) Clone() JoinCondition {
+	newNode := JoinCondition{
+		Using: node.Using.Clone(),
+	}
+	if node.On != nil {
+		newNode.On = node.On.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *JoinTableExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v %s %v%v", node.LeftExpr, node.Join, node.RightExpr, node.Condition)
+}
+
+// Clone
+func (node *JoinTableExpr) Clone() TableExpr {
+	newNode := &JoinTableExpr{
+		Join:      node.Join,
+		Condition: node.Condition.Clone(),
+	}
+	if node.LeftExpr != nil {
+		newNode.LeftExpr = node.LeftExpr.Clone()
+	}
+	if node.RightExpr != nil {
+		newNode.RightExpr = node.RightExpr.Clone()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1524,12 +2126,28 @@ func (node *IndexHints) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *IndexHints) Clone() *IndexHints {
+	newNode := &IndexHints{Type: node.Type}
+	for _, v := range node.Indexes {
+		newNode.Indexes = append(newNode.Indexes, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *Where) Format(buf *TrackedBuffer) {
 	if node == nil || node.Expr == nil {
 		return
 	}
 	buf.astPrintf(node, " %s %v", node.Type, node.Expr)
+}
+
+func (node *Where) Clone() *Where {
+	newNode := &Where{Type: node.Type}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1546,9 +2164,25 @@ func (node *AndExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v and %v", node.Left, node.Right)
 }
 
+// Clone
+func (node *AndExpr) CloneAsExpr() Expr {
+	return &AndExpr{
+		Left:  node.Left.CloneAsExpr(),
+		Right: node.Right.CloneAsExpr(),
+	}
+}
+
 // Format formats the node.
 func (node *OrExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v or %v", node.Left, node.Right)
+}
+
+// Clone
+func (node *OrExpr) CloneAsExpr() Expr {
+	return &OrExpr{
+		Left:  node.Left.CloneAsExpr(),
+		Right: node.Right.CloneAsExpr(),
+	}
 }
 
 // Format formats the node.
@@ -1556,9 +2190,22 @@ func (node *XorExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v xor %v", node.Left, node.Right)
 }
 
+// Clone
+func (node *XorExpr) CloneAsExpr() Expr {
+	return &XorExpr{
+		Left:  node.Left.CloneAsExpr(),
+		Right: node.Right.CloneAsExpr(),
+	}
+}
+
 // Format formats the node.
 func (node *NotExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "not %v", node.Expr)
+}
+
+// Clone
+func (node *NotExpr) CloneAsExpr() Expr {
+	return &NotExpr{Expr: node.Expr.CloneAsExpr()}
 }
 
 // Format formats the node.
@@ -1569,9 +2216,32 @@ func (node *ComparisonExpr) Format(buf *TrackedBuffer) {
 	}
 }
 
+// Clone
+func (node *ComparisonExpr) CloneAsExpr() Expr {
+	newNode := &ComparisonExpr{
+		Operator: node.Operator,
+		Left:     node.Left.CloneAsExpr(),
+		Right:    node.Right.CloneAsExpr(),
+	}
+	if node.Escape != nil {
+		newNode.Escape = node.Escape.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *RangeCond) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v %s %v and %v", node.Left, node.Operator, node.From, node.To)
+}
+
+// Clone
+func (node *RangeCond) CloneAsExpr() Expr {
+	return &RangeCond{
+		Operator: node.Operator,
+		Left:     node.Left.CloneAsExpr(),
+		From:     node.From.CloneAsExpr(),
+		To:       node.To.CloneAsExpr(),
+	}
 }
 
 // Format formats the node.
@@ -1579,9 +2249,22 @@ func (node *IsExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v %s", node.Expr, node.Operator)
 }
 
+// Clone
+func (node *IsExpr) CloneAsExpr() Expr {
+	return &IsExpr{
+		Operator: node.Operator,
+		Expr:     node.Expr.CloneAsExpr(),
+	}
+}
+
 // Format formats the node.
 func (node *ExistsExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "exists %v", node.Subquery)
+}
+
+// Clone
+func (node *ExistsExpr) CloneAsExpr() Expr {
+	return &ExistsExpr{Subquery: node.Subquery.Clone()}
 }
 
 // Format formats the node.
@@ -1602,9 +2285,22 @@ func (node *SQLVal) Format(buf *TrackedBuffer) {
 	}
 }
 
+// Clone
+func (node *SQLVal) CloneAsExpr() Expr {
+	return &SQLVal{
+		Type: node.Type,
+		Val:  node.Val,
+	}
+}
+
 // Format formats the node.
 func (node *NullVal) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "null")
+}
+
+// Clone
+func (node *NullVal) CloneAsExpr() Expr {
+	return &NullVal{}
 }
 
 // Format formats the node.
@@ -1616,6 +2312,11 @@ func (node BoolVal) Format(buf *TrackedBuffer) {
 	}
 }
 
+// Clone
+func (node BoolVal) CloneAsExpr() Expr {
+	return node
+}
+
 // Format formats the node.
 func (node *ColName) Format(buf *TrackedBuffer) {
 	if !node.Qualifier.IsEmpty() {
@@ -1624,9 +2325,36 @@ func (node *ColName) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v", node.Name)
 }
 
+// Clone
+func (node *ColName) CloneAsExpr() Expr {
+	return &ColName{
+		Metadata:  node.Metadata, // FIXME
+		Name:      node.Name.Clone(),
+		Qualifier: node.Qualifier.CloneAsSimpleTableExpr().(TableName),
+	}
+}
+
 // Format formats the node.
 func (node ValTuple) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "(%v)", Exprs(node))
+}
+
+func (node ValTuple) Clone() ValTuple {
+	newNode := ValTuple{}
+	for _, v := range node {
+		newNode = append(newNode, v.CloneAsExpr())
+	}
+	return newNode
+}
+
+// Clone
+func (node ValTuple) CloneAsExpr() Expr {
+	return node.Clone()
+}
+
+// CloneAsColTuple
+func (node ValTuple) CloneAsColTuple() ColTuple {
+	return node.Clone()
 }
 
 // Format formats the node.
@@ -1634,14 +2362,52 @@ func (node *Subquery) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "(%v)", node.Select)
 }
 
+func (node *Subquery) Clone() *Subquery {
+	return &Subquery{Select: node.Select.CloneAsStatement().(SelectStatement)}
+}
+
+// Clone
+func (node *Subquery) CloneAsSimpleTableExpr() SimpleTableExpr {
+	return node.Clone()
+}
+
+// CloneAsExpr
+func (node *Subquery) CloneAsExpr() Expr {
+	return node.Clone()
+}
+
+// CloneAsColTuple
+func (node *Subquery) CloneAsColTuple() ColTuple {
+	return node.Clone()
+}
+
 // Format formats the node.
 func (node ListArg) Format(buf *TrackedBuffer) {
 	buf.WriteArg(string(node))
 }
 
+// Clone
+func (node ListArg) CloneAsExpr() Expr {
+	return node
+}
+
+// CloneAsColTuple
+func (node ListArg) CloneAsColTuple() ColTuple {
+	return node
+}
+
 // Format formats the node.
 func (node *BinaryExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v %s %v", node.Left, node.Operator, node.Right)
+}
+
+// Clone
+func (node *BinaryExpr) CloneAsExpr() Expr {
+	return &BinaryExpr{
+		Operator: node.Operator,
+		Left:     node.Left.CloneAsExpr(),
+		Right:    node.Right.CloneAsExpr(),
+	}
 }
 
 // Format formats the node.
@@ -1654,9 +2420,25 @@ func (node *UnaryExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%s%v", node.Operator, node.Expr)
 }
 
+// Clone
+func (node *UnaryExpr) CloneAsExpr() Expr {
+	return &UnaryExpr{
+		Operator: node.Operator,
+		Expr:     node.Expr.CloneAsExpr(),
+	}
+}
+
 // Format formats the node.
 func (node *IntervalExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "interval %v %s", node.Expr, node.Unit)
+}
+
+// Clone
+func (node *IntervalExpr) CloneAsExpr() Expr {
+	return &IntervalExpr{
+		Expr: node.Expr.CloneAsExpr(),
+		Unit: node.Unit,
+	}
 }
 
 // Format formats the node.
@@ -1664,14 +2446,48 @@ func (node *TimestampFuncExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%s(%s, %v, %v)", node.Name, node.Unit, node.Expr1, node.Expr2)
 }
 
+// Clone
+func (node *TimestampFuncExpr) CloneAsExpr() Expr {
+	newNode := &TimestampFuncExpr{
+		Name: node.Name,
+		Unit: node.Unit,
+	}
+	if node.Expr1 != nil {
+		newNode.Expr1 = node.Expr1.CloneAsExpr()
+	}
+	if node.Expr2 != nil {
+		newNode.Expr2 = node.Expr2.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *CurTimeFuncExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%s(%v)", node.Name.String(), node.Fsp)
 }
 
+// CloneAsExpr
+func (node *CurTimeFuncExpr) CloneAsExpr() Expr {
+	newNode := &CurTimeFuncExpr{
+		Name: node.Name.Clone(),
+	}
+	if node.Fsp != nil {
+		newNode.Fsp = node.Fsp.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *CollateExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v collate %s", node.Expr, node.Charset)
+}
+
+// Clone
+func (node *CollateExpr) CloneAsExpr() Expr {
+	return &CollateExpr{
+		Expr:    node.Expr.CloneAsExpr(),
+		Charset: node.Charset,
+	}
 }
 
 // Format formats the node.
@@ -1695,14 +2511,48 @@ func (node *FuncExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "(%s%v)", distinct, node.Exprs)
 }
 
+// CloneAsExpr
+func (node *FuncExpr) CloneAsExpr() Expr {
+	newNode := &FuncExpr{
+		Qualifier: node.Qualifier.Clone(),
+		Name:      node.Name.Clone(),
+		Distinct:  node.Distinct,
+	}
+	for _, v := range node.Exprs {
+		newNode.Exprs = append(newNode.Exprs, v.Clone())
+	}
+	return newNode
+}
+
 // Format formats the node
 func (node *GroupConcatExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "group_concat(%s%v%v%s%v)", node.Distinct, node.Exprs, node.OrderBy, node.Separator, node.Limit)
 }
 
+// CloneAsExpr
+func (node *GroupConcatExpr) CloneAsExpr() Expr {
+	newNode := &GroupConcatExpr{
+		Distinct:  node.Distinct,
+		OrderBy:   node.OrderBy.Clone(),
+		Separator: node.Separator,
+	}
+	for _, v := range node.Exprs {
+		newNode.Exprs = append(newNode.Exprs, v.Clone())
+	}
+	if node.Limit != nil {
+		newNode.Limit = node.Limit.Clone()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *ValuesFuncExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "values(%v)", node.Name)
+}
+
+// CloneAsExpr
+func (node *ValuesFuncExpr) CloneAsExpr() Expr {
+	return &ValuesFuncExpr{Name: node.Name.CloneAsExpr().(*ColName)}
 }
 
 // Format formats the node.
@@ -1721,14 +2571,51 @@ func (node *SubstrExpr) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsExpr
+func (node *SubstrExpr) CloneAsExpr() Expr {
+	newNode := &SubstrExpr{}
+	if node.Name != nil {
+		newNode.Name = node.Name.CloneAsExpr().(*ColName)
+	}
+	if node.StrVal != nil {
+		newNode.StrVal = node.StrVal.CloneAsExpr().(*SQLVal)
+	}
+	if node.From != nil {
+		newNode.From = node.From.CloneAsExpr()
+	}
+	if node.To != nil {
+		newNode.To = node.To.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *ConvertExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "convert(%v, %v)", node.Expr, node.Type)
 }
 
+// CloneAsExpr
+func (node *ConvertExpr) CloneAsExpr() Expr {
+	newNode := &ConvertExpr{
+		Expr: node.Expr.CloneAsExpr(),
+	}
+	if node.Type != nil {
+		newNode.Type = node.Type.Clone()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *ConvertUsingExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "convert(%v using %s)", node.Expr, node.Type)
+}
+
+// CloneAsExpr
+func (node *ConvertUsingExpr) CloneAsExpr() Expr {
+	return &ConvertUsingExpr{
+		Expr: node.Expr.CloneAsExpr(),
+		Type: node.Type,
+	}
 }
 
 // Format formats the node.
@@ -1746,9 +2633,33 @@ func (node *ConvertType) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *ConvertType) Clone() *ConvertType {
+	newNode := &ConvertType{
+		Type:     node.Type,
+		Operator: node.Operator,
+		Charset:  node.Charset,
+	}
+	if node.Length != nil {
+		newNode.Length = node.Length.CloneAsExpr().(*SQLVal)
+	}
+	if node.Scale != nil {
+		newNode.Scale = node.Scale.CloneAsExpr().(*SQLVal)
+	}
+	return newNode
+}
+
 // Format formats the node
 func (node *MatchExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "match(%v) against (%v%s)", node.Columns, node.Expr, node.Option)
+}
+
+// CloneAsExpr
+func (node *MatchExpr) CloneAsExpr() Expr {
+	return &MatchExpr{
+		Columns: node.Columns.Clone(),
+		Expr:    node.Expr.CloneAsExpr(),
+		Option:  node.Option,
+	}
 }
 
 // Format formats the node.
@@ -1766,9 +2677,38 @@ func (node *CaseExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "end")
 }
 
+// CloneAsExpr
+func (node *CaseExpr) CloneAsExpr() Expr {
+	newNode := &CaseExpr{
+		Expr: node.Expr.CloneAsExpr(),
+	}
+	for _, v := range node.Whens {
+		if v == nil {
+			newNode.Whens = append(newNode.Whens, nil)
+		} else {
+			newNode.Whens = append(newNode.Whens, v.Clone())
+		}
+	}
+	if node.Else != nil {
+		newNode.Else = node.Else.CloneAsExpr()
+	}
+	return newNode
+}
+
 func (node *SubqueryFuncExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%s", node.FuncName)
 	buf.astPrintf(node, "%v", node.Subquery)
+}
+
+// CloneAsExpr
+func (node *SubqueryFuncExpr) CloneAsExpr() Expr {
+	newNode := &SubqueryFuncExpr{
+		FuncName: node.FuncName,
+	}
+	if node.Subquery != nil {
+		newNode.Subquery = node.Subquery.Clone()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1781,9 +2721,25 @@ func (node *Default) Format(buf *TrackedBuffer) {
 	}
 }
 
+// CloneAsExpr
+func (node *Default) CloneAsExpr() Expr {
+	return &Default{ColName: node.ColName}
+}
+
 // Format formats the node.
 func (node *When) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "when %v then %v", node.Cond, node.Val)
+}
+
+func (node *When) Clone() *When {
+	newNode := &When{}
+	if node.Val != nil {
+		newNode.Val = node.Val.CloneAsExpr()
+	}
+	if node.Cond != nil {
+		newNode.Cond = node.Cond.CloneAsExpr()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1795,6 +2751,17 @@ func (node GroupBy) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node GroupBy) Clone() GroupBy {
+	if node == nil {
+		return nil
+	}
+	newNode := GroupBy{}
+	for _, v := range node {
+		newNode = append(newNode, v.CloneAsExpr())
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node OrderBy) Format(buf *TrackedBuffer) {
 	prefix := " order by "
@@ -1802,6 +2769,17 @@ func (node OrderBy) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s%v", prefix, n)
 		prefix = ", "
 	}
+}
+
+func (node OrderBy) Clone() OrderBy {
+	if node == nil {
+		return nil
+	}
+	newNode := OrderBy{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1820,6 +2798,15 @@ func (node *Order) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v %s", node.Expr, node.Direction)
 }
 
+// Clone
+func (node *Order) Clone() *Order {
+	newNode := &Order{Direction: node.Direction}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *Limit) Format(buf *TrackedBuffer) {
 	if node == nil {
@@ -1832,6 +2819,17 @@ func (node *Limit) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v", node.Rowcount)
 }
 
+func (node *Limit) Clone() *Limit {
+	newNode := &Limit{}
+	if node.Rowcount != nil {
+		newNode.Rowcount = node.Rowcount.CloneAsExpr()
+	}
+	if node.Offset != nil {
+		newNode.Offset = node.Offset.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node Values) Format(buf *TrackedBuffer) {
 	prefix := "values "
@@ -1839,6 +2837,18 @@ func (node Values) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s%v", prefix, n)
 		prefix = ", "
 	}
+}
+
+// CloneAsInsertRows
+func (node Values) CloneAsInsertRows() InsertRows {
+	if node == nil {
+		return nil
+	}
+	newNode := Values{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1850,9 +2860,35 @@ func (node UpdateExprs) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node UpdateExprs) Clone() UpdateExprs {
+	if node == nil {
+		return nil
+	}
+	newNode := UpdateExprs{}
+	for _, v := range node {
+		if v == nil {
+			newNode = append(newNode, nil)
+		} else {
+			newNode = append(newNode, v.Clone())
+		}
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node *UpdateExpr) Format(buf *TrackedBuffer) {
 	buf.astPrintf(node, "%v = %v", node.Name, node.Expr)
+}
+
+func (node *UpdateExpr) Clone() *UpdateExpr {
+	newNode := &UpdateExpr{}
+	if node.Name != nil {
+		newNode.Name = node.Name.CloneAsExpr().(*ColName)
+	}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1862,6 +2898,17 @@ func (node SetExprs) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s%v", prefix, n)
 		prefix = ", "
 	}
+}
+
+func (node SetExprs) Clone() SetExprs {
+	if node == nil {
+		return nil
+	}
+	newNode := SetExprs{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1882,12 +2929,34 @@ func (node *SetExpr) Format(buf *TrackedBuffer) {
 	}
 }
 
+func (node *SetExpr) Clone() *SetExpr {
+	newNode := &SetExpr{
+		Scope: node.Scope,
+		Name:  node.Name.Clone(),
+	}
+	if node.Expr != nil {
+		newNode.Expr = node.Expr.CloneAsExpr()
+	}
+	return newNode
+}
+
 // Format formats the node.
 func (node OnDup) Format(buf *TrackedBuffer) {
 	if node == nil {
 		return
 	}
 	buf.astPrintf(node, " on duplicate key update %v", UpdateExprs(node))
+}
+
+func (node OnDup) Clone() OnDup {
+	if node == nil {
+		return nil
+	}
+	newNode := OnDup{}
+	for _, v := range node {
+		newNode = append(newNode, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.
@@ -1903,9 +2972,21 @@ func (node TableIdent) Format(buf *TrackedBuffer) {
 	formatID(buf, node.v, strings.ToLower(node.v), NoAt)
 }
 
+func (node TableIdent) Clone() TableIdent {
+	return TableIdent{v: node.v}
+}
+
 // AtCount return the '@' count present in ColIdent Name
 func (node ColIdent) AtCount() AtCount {
 	return node.at
+}
+
+func (node ColIdent) Clone() ColIdent {
+	return ColIdent{
+		val:     node.val,
+		lowered: node.lowered,
+		at:      node.at,
+	}
 }
 
 func (*IsolationLevel) iChar() {}
@@ -1916,7 +2997,17 @@ func (node *IsolationLevel) Format(buf *TrackedBuffer) {
 	buf.WriteString("isolation level " + node.Level)
 }
 
+// Clone
+func (node *IsolationLevel) Clone() Characteristic {
+	return &IsolationLevel{Level: node.Level}
+}
+
 // Format formats the node.
 func (node *AccessMode) Format(buf *TrackedBuffer) {
 	buf.WriteString(node.Mode)
+}
+
+// Clone
+func (node *AccessMode) Clone() Characteristic {
+	return &AccessMode{Mode: node.Mode}
 }
