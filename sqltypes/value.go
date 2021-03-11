@@ -18,8 +18,6 @@ limitations under the License.
 package sqltypes
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -53,32 +51,6 @@ type BinWriter interface {
 type Value struct {
 	typ querypb.Type
 	val []byte
-}
-
-// NewValue builds a Value using typ and val. If the value and typ
-// don't match, it returns an error.
-func NewValue(typ querypb.Type, val []byte) (v Value, err error) {
-	switch {
-	case IsSigned(typ):
-		if _, err := strconv.ParseInt(string(val), 0, 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsUnsigned(typ):
-		if _, err := strconv.ParseUint(string(val), 0, 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsFloat(typ) || typ == Decimal:
-		if _, err := strconv.ParseFloat(string(val), 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsQuoted(typ) || typ == Bit || typ == Null:
-		return MakeTrusted(typ, val), nil
-	}
-	// All other types are unsafe or invalid.
-	return NULL, fmt.Errorf("invalid type specified for MakeValue: %v", typ)
 }
 
 // MakeTrusted makes a new Value based on the type.
@@ -237,99 +209,9 @@ func (v Value) EncodeSQL(b BinWriter) {
 	}
 }
 
-// EncodeASCII encodes the value using 7-bit clean ascii bytes.
-func (v Value) EncodeASCII(b BinWriter) {
-	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
-	case v.IsQuoted() || v.typ == Bit:
-		encodeBytesASCII(v.val, b)
-	default:
-		b.Write(v.val)
-	}
-}
-
-// IsNull returns true if Value is null.
-func (v Value) IsNull() bool {
-	return v.typ == Null
-}
-
-// IsIntegral returns true if Value is an integral.
-func (v Value) IsIntegral() bool {
-	return IsIntegral(v.typ)
-}
-
-// IsSigned returns true if Value is a signed integral.
-func (v Value) IsSigned() bool {
-	return IsSigned(v.typ)
-}
-
-// IsUnsigned returns true if Value is an unsigned integral.
-func (v Value) IsUnsigned() bool {
-	return IsUnsigned(v.typ)
-}
-
-// IsFloat returns true if Value is a float.
-func (v Value) IsFloat() bool {
-	return IsFloat(v.typ)
-}
-
 // IsQuoted returns true if Value must be SQL-quoted.
 func (v Value) IsQuoted() bool {
 	return IsQuoted(v.typ)
-}
-
-// IsText returns true if Value is a collatable text.
-func (v Value) IsText() bool {
-	return IsText(v.typ)
-}
-
-// IsBinary returns true if Value is binary.
-func (v Value) IsBinary() bool {
-	return IsBinary(v.typ)
-}
-
-// MarshalJSON should only be used for testing.
-// It's not a complete implementation.
-func (v Value) MarshalJSON() ([]byte, error) {
-	switch {
-	case v.IsQuoted() || v.typ == Bit:
-		return json.Marshal(v.ToString())
-	case v.typ == Null:
-		return nullstr, nil
-	}
-	return v.val, nil
-}
-
-// UnmarshalJSON should only be used for testing.
-// It's not a complete implementation.
-func (v *Value) UnmarshalJSON(b []byte) error {
-	if len(b) == 0 {
-		return fmt.Errorf("error unmarshaling empty bytes")
-	}
-	var val interface{}
-	var err error
-	switch b[0] {
-	case '-':
-		var ival int64
-		err = json.Unmarshal(b, &ival)
-		val = ival
-	case '"':
-		var bval []byte
-		err = json.Unmarshal(b, &bval)
-		val = bval
-	case 'n': // null
-		err = json.Unmarshal(b, &val)
-	default:
-		var uval uint64
-		err = json.Unmarshal(b, &uval)
-		val = uval
-	}
-	if err != nil {
-		return err
-	}
-	*v, err = InterfaceToValue(val)
-	return err
 }
 
 func encodeBytesSQL(val []byte, b BinWriter) {
@@ -353,16 +235,6 @@ func encodeBytesSQLBits(val []byte, b BinWriter) {
 		fmt.Fprintf(b, "%08b", ch)
 	}
 	fmt.Fprint(b, "'")
-}
-
-func encodeBytesASCII(val []byte, b BinWriter) {
-	buf := &bytes2.Buffer{}
-	buf.WriteByte('\'')
-	encoder := base64.NewEncoder(base64.StdEncoding, buf)
-	encoder.Write(val)
-	encoder.Close()
-	buf.WriteByte('\'')
-	b.Write(buf.Bytes())
 }
 
 // SQLEncodeMap specifies how to escape binary data with '\'.

@@ -19,13 +19,7 @@ package sqlparser
 import (
 	"errors"
 	"fmt"
-	"io"
 	"sync"
-
-	"github.com/anhk/vitess/vt/log"
-	"github.com/anhk/vitess/vt/vterrors"
-
-	vtrpcpb "github.com/anhk/vitess/vt/proto/vtrpc"
 )
 
 // parserPool is a pool for parser objects.
@@ -86,129 +80,20 @@ func Parse(sql string) (Statement, error) {
 			if typ, val := tokenizer.Scan(); typ != 0 {
 				return nil, fmt.Errorf("extra characters encountered after end of DDL: '%s'", string(val))
 			}
-			log.Warningf("ignoring error parsing DDL '%s': %v", sql, tokenizer.LastError)
-			tokenizer.ParseTree = tokenizer.partialDDL
-			return tokenizer.ParseTree, nil
-		}
-		return nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, tokenizer.LastError.Error())
-	}
-	if tokenizer.ParseTree == nil {
-		return nil, ErrEmpty
-	}
-	return tokenizer.ParseTree, nil
-}
-
-// ParseStrictDDL is the same as Parse except it errors on
-// partially parsed DDL statements.
-func ParseStrictDDL(sql string) (Statement, error) {
-	tokenizer := NewStringTokenizer(sql)
-	if yyParsePooled(tokenizer) != 0 {
-		return nil, tokenizer.LastError
-	}
-	if tokenizer.ParseTree == nil {
-		return nil, ErrEmpty
-	}
-	return tokenizer.ParseTree, nil
-}
-
-// ParseTokenizer is a raw interface to parse from the given tokenizer.
-// This does not used pooled parsers, and should not be used in general.
-func ParseTokenizer(tokenizer *Tokenizer) int {
-	return yyParse(tokenizer)
-}
-
-// ParseNext parses a single SQL statement from the tokenizer
-// returning a Statement which is the AST representation of the query.
-// The tokenizer will always read up to the end of the statement, allowing for
-// the next call to ParseNext to parse any subsequent SQL statements. When
-// there are no more statements to parse, a error of io.EOF is returned.
-func ParseNext(tokenizer *Tokenizer) (Statement, error) {
-	return parseNext(tokenizer, false)
-}
-
-// ParseNextStrictDDL is the same as ParseNext except it errors on
-// partially parsed DDL statements.
-func ParseNextStrictDDL(tokenizer *Tokenizer) (Statement, error) {
-	return parseNext(tokenizer, true)
-}
-
-func parseNext(tokenizer *Tokenizer, strict bool) (Statement, error) {
-	if tokenizer.lastChar == ';' {
-		tokenizer.next()
-		tokenizer.skipBlank()
-	}
-	if tokenizer.lastChar == eofChar {
-		return nil, io.EOF
-	}
-
-	tokenizer.reset()
-	tokenizer.multi = true
-	if yyParsePooled(tokenizer) != 0 {
-		if tokenizer.partialDDL != nil && !strict {
+			//log.Warningf("ignoring error parsing DDL '%s': %v", sql, tokenizer.LastError)
 			tokenizer.ParseTree = tokenizer.partialDDL
 			return tokenizer.ParseTree, nil
 		}
 		return nil, tokenizer.LastError
 	}
 	if tokenizer.ParseTree == nil {
-		return ParseNext(tokenizer)
+		return nil, ErrEmpty
 	}
 	return tokenizer.ParseTree, nil
 }
 
 // ErrEmpty is a sentinel error returned when parsing empty statements.
 var ErrEmpty = errors.New("empty statement")
-
-// SplitStatement returns the first sql statement up to either a ; or EOF
-// and the remainder from the given buffer
-func SplitStatement(blob string) (string, string, error) {
-	tokenizer := NewStringTokenizer(blob)
-	tkn := 0
-	for {
-		tkn, _ = tokenizer.Scan()
-		if tkn == 0 || tkn == ';' || tkn == eofChar {
-			break
-		}
-	}
-	if tokenizer.LastError != nil {
-		return "", "", tokenizer.LastError
-	}
-	if tkn == ';' {
-		return blob[:tokenizer.Position-2], blob[tokenizer.Position-1:], nil
-	}
-	return blob, "", nil
-}
-
-// SplitStatementToPieces split raw sql statement that may have multi sql pieces to sql pieces
-// returns the sql pieces blob contains; or error if sql cannot be parsed
-func SplitStatementToPieces(blob string) (pieces []string, err error) {
-	pieces = make([]string, 0, 16)
-	tokenizer := NewStringTokenizer(blob)
-
-	tkn := 0
-	var stmt string
-	stmtBegin := 0
-	for {
-		tkn, _ = tokenizer.Scan()
-		if tkn == ';' {
-			stmt = blob[stmtBegin : tokenizer.Position-2]
-			pieces = append(pieces, stmt)
-			stmtBegin = tokenizer.Position - 1
-
-		} else if tkn == 0 || tkn == eofChar {
-			blobTail := tokenizer.Position - 2
-
-			if stmtBegin < blobTail {
-				stmt = blob[stmtBegin : blobTail+1]
-				pieces = append(pieces, stmt)
-			}
-			break
-		}
-	}
-
-	err = tokenizer.LastError
-	return
-}
 
 // String returns a string representation of an SQLNode.
 func String(node SQLNode) string {

@@ -21,57 +21,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/anhk/vitess/vt/log"
-
 	"github.com/anhk/vitess/sqltypes"
 	querypb "github.com/anhk/vitess/vt/proto/query"
 )
-
-// Walk calls visit on every node.
-// If visit returns true, the underlying nodes
-// are also visited. If it returns an error, walking
-// is interrupted, and the error is returned.
-func Walk(visit Visit, nodes ...SQLNode) error {
-	for _, node := range nodes {
-		if node == nil {
-			continue
-		}
-		var err error
-		var kontinue bool
-		pre := func(cursor *Cursor) bool {
-			// If we already have found an error, don't visit these nodes, just exit early
-			if err != nil {
-				return false
-			}
-			kontinue, err = visit(cursor.Node())
-			if err != nil {
-				return true // we have to return true here so that post gets called
-			}
-			return kontinue
-		}
-		post := func(cursor *Cursor) bool {
-			return err == nil // now we can abort the traversal if an error was found
-		}
-
-		Rewrite(node, pre, post)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Visit defines the signature of a function that
-// can be used to visit all nodes of a parse tree.
-type Visit func(node SQLNode) (kontinue bool, err error)
-
-// Append appends the SQLNode to the buffer.
-func Append(buf *strings.Builder, node SQLNode) {
-	tbuf := &TrackedBuffer{
-		Builder: buf,
-	}
-	node.Format(tbuf)
-}
 
 // IndexColumn describes a column in an index definition with optional length
 type IndexColumn struct {
@@ -398,34 +350,6 @@ func NewWhere(typ string, expr Expr) *Where {
 		return nil
 	}
 	return &Where{Type: typ, Expr: expr}
-}
-
-// ReplaceExpr finds the from expression from root
-// and replaces it with to. If from matches root,
-// then to is returned.
-func ReplaceExpr(root, from, to Expr) Expr {
-	tmp := Rewrite(root, replaceExpr(from, to), nil)
-	expr, success := tmp.(Expr)
-	if !success {
-		log.Errorf("Failed to rewrite expression. Rewriter returned a non-expression: " + String(tmp))
-		return from
-	}
-
-	return expr
-}
-
-func replaceExpr(from, to Expr) func(cursor *Cursor) bool {
-	return func(cursor *Cursor) bool {
-		if cursor.Node() == from {
-			cursor.Replace(to)
-		}
-		switch cursor.Node().(type) {
-		case *ExistsExpr, *SQLVal, *Subquery, *ValuesFuncExpr, *Default:
-			return false
-		}
-
-		return true
-	}
 }
 
 // IsImpossible returns true if the comparison in the expression can never evaluate to true.
