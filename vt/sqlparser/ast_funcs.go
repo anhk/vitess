@@ -20,58 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
-
-	"github.com/anhk/vitess/vt/log"
-
-	"github.com/anhk/vitess/sqltypes"
-	querypb "github.com/anhk/vitess/vt/proto/query"
 )
-
-// Walk calls visit on every node.
-// If visit returns true, the underlying nodes
-// are also visited. If it returns an error, walking
-// is interrupted, and the error is returned.
-func Walk(visit Visit, nodes ...SQLNode) error {
-	for _, node := range nodes {
-		if node == nil {
-			continue
-		}
-		var err error
-		var kontinue bool
-		pre := func(cursor *Cursor) bool {
-			// If we already have found an error, don't visit these nodes, just exit early
-			if err != nil {
-				return false
-			}
-			kontinue, err = visit(cursor.Node())
-			if err != nil {
-				return true // we have to return true here so that post gets called
-			}
-			return kontinue
-		}
-		post := func(cursor *Cursor) bool {
-			return err == nil // now we can abort the traversal if an error was found
-		}
-
-		Rewrite(node, pre, post)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Visit defines the signature of a function that
-// can be used to visit all nodes of a parse tree.
-type Visit func(node SQLNode) (kontinue bool, err error)
-
-// Append appends the SQLNode to the buffer.
-func Append(buf *strings.Builder, node SQLNode) {
-	tbuf := &TrackedBuffer{
-		Builder: buf,
-	}
-	node.Format(tbuf)
-}
 
 // IndexColumn describes a column in an index definition with optional length
 type IndexColumn struct {
@@ -205,127 +154,129 @@ func (ts *TableSpec) AddConstraint(cd *ConstraintDefinition) {
 	ts.Constraints = append(ts.Constraints, cd)
 }
 
-// DescribeType returns the abbreviated type information as required for
-// describe table
-func (ct *ColumnType) DescribeType() string {
-	buf := NewTrackedBuffer(nil)
-	buf.Myprintf("%s", ct.Type)
-	if ct.Length != nil && ct.Scale != nil {
-		buf.Myprintf("(%v,%v)", ct.Length, ct.Scale)
-	} else if ct.Length != nil {
-		buf.Myprintf("(%v)", ct.Length)
-	}
+//
+//// DescribeType returns the abbreviated type information as required for
+//// describe table
+//func (ct *ColumnType) DescribeType() string {
+//	buf := NewTrackedBuffer(nil)
+//	buf.Myprintf("%s", ct.Type)
+//	if ct.Length != nil && ct.Scale != nil {
+//		buf.Myprintf("(%v,%v)", ct.Length, ct.Scale)
+//	} else if ct.Length != nil {
+//		buf.Myprintf("(%v)", ct.Length)
+//	}
+//
+//	opts := make([]string, 0, 16)
+//	if ct.Unsigned {
+//		opts = append(opts, keywordStrings[UNSIGNED])
+//	}
+//	if ct.Zerofill {
+//		opts = append(opts, keywordStrings[ZEROFILL])
+//	}
+//	if len(opts) != 0 {
+//		buf.Myprintf(" %s", strings.Join(opts, " "))
+//	}
+//	return buf.String()
+//}
 
-	opts := make([]string, 0, 16)
-	if ct.Unsigned {
-		opts = append(opts, keywordStrings[UNSIGNED])
-	}
-	if ct.Zerofill {
-		opts = append(opts, keywordStrings[ZEROFILL])
-	}
-	if len(opts) != 0 {
-		buf.Myprintf(" %s", strings.Join(opts, " "))
-	}
-	return buf.String()
-}
-
-// SQLType returns the sqltypes type code for the given column
-func (ct *ColumnType) SQLType() querypb.Type {
-	switch strings.ToLower(ct.Type) {
-	case keywordStrings[TINYINT]:
-		if ct.Unsigned {
-			return sqltypes.Uint8
-		}
-		return sqltypes.Int8
-	case keywordStrings[SMALLINT]:
-		if ct.Unsigned {
-			return sqltypes.Uint16
-		}
-		return sqltypes.Int16
-	case keywordStrings[MEDIUMINT]:
-		if ct.Unsigned {
-			return sqltypes.Uint24
-		}
-		return sqltypes.Int24
-	case keywordStrings[INT], keywordStrings[INTEGER]:
-		if ct.Unsigned {
-			return sqltypes.Uint32
-		}
-		return sqltypes.Int32
-	case keywordStrings[BIGINT]:
-		if ct.Unsigned {
-			return sqltypes.Uint64
-		}
-		return sqltypes.Int64
-	case keywordStrings[BOOL], keywordStrings[BOOLEAN]:
-		return sqltypes.Uint8
-	case keywordStrings[TEXT]:
-		return sqltypes.Text
-	case keywordStrings[TINYTEXT]:
-		return sqltypes.Text
-	case keywordStrings[MEDIUMTEXT]:
-		return sqltypes.Text
-	case keywordStrings[LONGTEXT]:
-		return sqltypes.Text
-	case keywordStrings[BLOB]:
-		return sqltypes.Blob
-	case keywordStrings[TINYBLOB]:
-		return sqltypes.Blob
-	case keywordStrings[MEDIUMBLOB]:
-		return sqltypes.Blob
-	case keywordStrings[LONGBLOB]:
-		return sqltypes.Blob
-	case keywordStrings[CHAR]:
-		return sqltypes.Char
-	case keywordStrings[VARCHAR]:
-		return sqltypes.VarChar
-	case keywordStrings[BINARY]:
-		return sqltypes.Binary
-	case keywordStrings[VARBINARY]:
-		return sqltypes.VarBinary
-	case keywordStrings[DATE]:
-		return sqltypes.Date
-	case keywordStrings[TIME]:
-		return sqltypes.Time
-	case keywordStrings[DATETIME]:
-		return sqltypes.Datetime
-	case keywordStrings[TIMESTAMP]:
-		return sqltypes.Timestamp
-	case keywordStrings[YEAR]:
-		return sqltypes.Year
-	case keywordStrings[FLOAT_TYPE]:
-		return sqltypes.Float32
-	case keywordStrings[DOUBLE]:
-		return sqltypes.Float64
-	case keywordStrings[DECIMAL]:
-		return sqltypes.Decimal
-	case keywordStrings[BIT]:
-		return sqltypes.Bit
-	case keywordStrings[ENUM]:
-		return sqltypes.Enum
-	case keywordStrings[SET]:
-		return sqltypes.Set
-	case keywordStrings[JSON]:
-		return sqltypes.TypeJSON
-	case keywordStrings[GEOMETRY]:
-		return sqltypes.Geometry
-	case keywordStrings[POINT]:
-		return sqltypes.Geometry
-	case keywordStrings[LINESTRING]:
-		return sqltypes.Geometry
-	case keywordStrings[POLYGON]:
-		return sqltypes.Geometry
-	case keywordStrings[GEOMETRYCOLLECTION]:
-		return sqltypes.Geometry
-	case keywordStrings[MULTIPOINT]:
-		return sqltypes.Geometry
-	case keywordStrings[MULTILINESTRING]:
-		return sqltypes.Geometry
-	case keywordStrings[MULTIPOLYGON]:
-		return sqltypes.Geometry
-	}
-	panic("unimplemented type " + ct.Type)
-}
+//
+//// SQLType returns the sqltypes type code for the given column
+//func (ct *ColumnType) SQLType() querypb.Type {
+//	switch strings.ToLower(ct.Type) {
+//	case keywordStrings[TINYINT]:
+//		if ct.Unsigned {
+//			return sqltypes.Uint8
+//		}
+//		return sqltypes.Int8
+//	case keywordStrings[SMALLINT]:
+//		if ct.Unsigned {
+//			return sqltypes.Uint16
+//		}
+//		return sqltypes.Int16
+//	case keywordStrings[MEDIUMINT]:
+//		if ct.Unsigned {
+//			return sqltypes.Uint24
+//		}
+//		return sqltypes.Int24
+//	case keywordStrings[INT], keywordStrings[INTEGER]:
+//		if ct.Unsigned {
+//			return sqltypes.Uint32
+//		}
+//		return sqltypes.Int32
+//	case keywordStrings[BIGINT]:
+//		if ct.Unsigned {
+//			return sqltypes.Uint64
+//		}
+//		return sqltypes.Int64
+//	case keywordStrings[BOOL], keywordStrings[BOOLEAN]:
+//		return sqltypes.Uint8
+//	case keywordStrings[TEXT]:
+//		return sqltypes.Text
+//	case keywordStrings[TINYTEXT]:
+//		return sqltypes.Text
+//	case keywordStrings[MEDIUMTEXT]:
+//		return sqltypes.Text
+//	case keywordStrings[LONGTEXT]:
+//		return sqltypes.Text
+//	case keywordStrings[BLOB]:
+//		return sqltypes.Blob
+//	case keywordStrings[TINYBLOB]:
+//		return sqltypes.Blob
+//	case keywordStrings[MEDIUMBLOB]:
+//		return sqltypes.Blob
+//	case keywordStrings[LONGBLOB]:
+//		return sqltypes.Blob
+//	case keywordStrings[CHAR]:
+//		return sqltypes.Char
+//	case keywordStrings[VARCHAR]:
+//		return sqltypes.VarChar
+//	case keywordStrings[BINARY]:
+//		return sqltypes.Binary
+//	case keywordStrings[VARBINARY]:
+//		return sqltypes.VarBinary
+//	case keywordStrings[DATE]:
+//		return sqltypes.Date
+//	case keywordStrings[TIME]:
+//		return sqltypes.Time
+//	case keywordStrings[DATETIME]:
+//		return sqltypes.Datetime
+//	case keywordStrings[TIMESTAMP]:
+//		return sqltypes.Timestamp
+//	case keywordStrings[YEAR]:
+//		return sqltypes.Year
+//	case keywordStrings[FLOAT_TYPE]:
+//		return sqltypes.Float32
+//	case keywordStrings[DOUBLE]:
+//		return sqltypes.Float64
+//	case keywordStrings[DECIMAL]:
+//		return sqltypes.Decimal
+//	case keywordStrings[BIT]:
+//		return sqltypes.Bit
+//	case keywordStrings[ENUM]:
+//		return sqltypes.Enum
+//	case keywordStrings[SET]:
+//		return sqltypes.Set
+//	case keywordStrings[JSON]:
+//		return sqltypes.TypeJSON
+//	case keywordStrings[GEOMETRY]:
+//		return sqltypes.Geometry
+//	case keywordStrings[POINT]:
+//		return sqltypes.Geometry
+//	case keywordStrings[LINESTRING]:
+//		return sqltypes.Geometry
+//	case keywordStrings[POLYGON]:
+//		return sqltypes.Geometry
+//	case keywordStrings[GEOMETRYCOLLECTION]:
+//		return sqltypes.Geometry
+//	case keywordStrings[MULTIPOINT]:
+//		return sqltypes.Geometry
+//	case keywordStrings[MULTILINESTRING]:
+//		return sqltypes.Geometry
+//	case keywordStrings[MULTIPOLYGON]:
+//		return sqltypes.Geometry
+//	}
+//	panic("unimplemented type " + ct.Type)
+//}
 
 // ParseParams parses the vindex parameter list, pulling out the special-case
 // "owner" parameter
@@ -398,34 +349,6 @@ func NewWhere(typ string, expr Expr) *Where {
 		return nil
 	}
 	return &Where{Type: typ, Expr: expr}
-}
-
-// ReplaceExpr finds the from expression from root
-// and replaces it with to. If from matches root,
-// then to is returned.
-func ReplaceExpr(root, from, to Expr) Expr {
-	tmp := Rewrite(root, replaceExpr(from, to), nil)
-	expr, success := tmp.(Expr)
-	if !success {
-		log.Errorf("Failed to rewrite expression. Rewriter returned a non-expression: " + String(tmp))
-		return from
-	}
-
-	return expr
-}
-
-func replaceExpr(from, to Expr) func(cursor *Cursor) bool {
-	return func(cursor *Cursor) bool {
-		if cursor.Node() == from {
-			cursor.Replace(to)
-		}
-		switch cursor.Node().(type) {
-		case *ExistsExpr, *SQLVal, *Subquery, *ValuesFuncExpr, *Default:
-			return false
-		}
-
-		return true
-	}
 }
 
 // IsImpossible returns true if the comparison in the expression can never evaluate to true.

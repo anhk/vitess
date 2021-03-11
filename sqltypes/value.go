@@ -18,11 +18,7 @@ limitations under the License.
 package sqltypes
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"strconv"
-
 	"github.com/anhk/vitess/bytes2"
 	"github.com/anhk/vitess/hack"
 
@@ -55,32 +51,6 @@ type Value struct {
 	val []byte
 }
 
-// NewValue builds a Value using typ and val. If the value and typ
-// don't match, it returns an error.
-func NewValue(typ querypb.Type, val []byte) (v Value, err error) {
-	switch {
-	case IsSigned(typ):
-		if _, err := strconv.ParseInt(string(val), 0, 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsUnsigned(typ):
-		if _, err := strconv.ParseUint(string(val), 0, 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsFloat(typ) || typ == Decimal:
-		if _, err := strconv.ParseFloat(string(val), 64); err != nil {
-			return NULL, err
-		}
-		return MakeTrusted(typ, val), nil
-	case IsQuoted(typ) || typ == Bit || typ == Null:
-		return MakeTrusted(typ, val), nil
-	}
-	// All other types are unsafe or invalid.
-	return NULL, fmt.Errorf("invalid type specified for MakeValue: %v", typ)
-}
-
 // MakeTrusted makes a new Value based on the type.
 // This function should only be used if you know the value
 // and type conform to the rules. Every place this function is
@@ -95,85 +65,6 @@ func MakeTrusted(typ querypb.Type, val []byte) Value {
 	}
 
 	return Value{typ: typ, val: val}
-}
-
-// NewInt64 builds an Int64 Value.
-func NewInt64(v int64) Value {
-	return MakeTrusted(Int64, strconv.AppendInt(nil, v, 10))
-}
-
-// NewInt8 builds an Int8 Value.
-func NewInt8(v int8) Value {
-	return MakeTrusted(Int8, strconv.AppendInt(nil, int64(v), 10))
-}
-
-// NewInt32 builds an Int64 Value.
-func NewInt32(v int32) Value {
-	return MakeTrusted(Int32, strconv.AppendInt(nil, int64(v), 10))
-}
-
-// NewUint64 builds an Uint64 Value.
-func NewUint64(v uint64) Value {
-	return MakeTrusted(Uint64, strconv.AppendUint(nil, v, 10))
-}
-
-// NewUint32 builds an Uint32 Value.
-func NewUint32(v uint32) Value {
-	return MakeTrusted(Uint32, strconv.AppendUint(nil, uint64(v), 10))
-}
-
-// NewFloat64 builds an Float64 Value.
-func NewFloat64(v float64) Value {
-	return MakeTrusted(Float64, strconv.AppendFloat(nil, v, 'g', -1, 64))
-}
-
-// NewVarChar builds a VarChar Value.
-func NewVarChar(v string) Value {
-	return MakeTrusted(VarChar, []byte(v))
-}
-
-// NewVarBinary builds a VarBinary Value.
-// The input is a string because it's the most common use case.
-func NewVarBinary(v string) Value {
-	return MakeTrusted(VarBinary, []byte(v))
-}
-
-// NewIntegral builds an integral type from a string representation.
-// The type will be Int64 or Uint64. Int64 will be preferred where possible.
-func NewIntegral(val string) (n Value, err error) {
-	signed, err := strconv.ParseInt(val, 0, 64)
-	if err == nil {
-		return MakeTrusted(Int64, strconv.AppendInt(nil, signed, 10)), nil
-	}
-	unsigned, err := strconv.ParseUint(val, 0, 64)
-	if err != nil {
-		return Value{}, err
-	}
-	return MakeTrusted(Uint64, strconv.AppendUint(nil, unsigned, 10)), nil
-}
-
-// InterfaceToValue builds a value from a go type.
-// Supported types are nil, int64, uint64, float64,
-// string and []byte.
-// This function is deprecated. Use the type-specific
-// functions instead.
-func InterfaceToValue(goval interface{}) (Value, error) {
-	switch goval := goval.(type) {
-	case nil:
-		return NULL, nil
-	case []byte:
-		return MakeTrusted(VarBinary, goval), nil
-	case int64:
-		return NewInt64(goval), nil
-	case uint64:
-		return NewUint64(goval), nil
-	case float64:
-		return NewFloat64(goval), nil
-	case string:
-		return NewVarChar(goval), nil
-	default:
-		return NULL, fmt.Errorf("unexpected type %T: %v", goval, goval)
-	}
 }
 
 // Type returns the type of Value.
@@ -237,99 +128,9 @@ func (v Value) EncodeSQL(b BinWriter) {
 	}
 }
 
-// EncodeASCII encodes the value using 7-bit clean ascii bytes.
-func (v Value) EncodeASCII(b BinWriter) {
-	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
-	case v.IsQuoted() || v.typ == Bit:
-		encodeBytesASCII(v.val, b)
-	default:
-		b.Write(v.val)
-	}
-}
-
-// IsNull returns true if Value is null.
-func (v Value) IsNull() bool {
-	return v.typ == Null
-}
-
-// IsIntegral returns true if Value is an integral.
-func (v Value) IsIntegral() bool {
-	return IsIntegral(v.typ)
-}
-
-// IsSigned returns true if Value is a signed integral.
-func (v Value) IsSigned() bool {
-	return IsSigned(v.typ)
-}
-
-// IsUnsigned returns true if Value is an unsigned integral.
-func (v Value) IsUnsigned() bool {
-	return IsUnsigned(v.typ)
-}
-
-// IsFloat returns true if Value is a float.
-func (v Value) IsFloat() bool {
-	return IsFloat(v.typ)
-}
-
 // IsQuoted returns true if Value must be SQL-quoted.
 func (v Value) IsQuoted() bool {
 	return IsQuoted(v.typ)
-}
-
-// IsText returns true if Value is a collatable text.
-func (v Value) IsText() bool {
-	return IsText(v.typ)
-}
-
-// IsBinary returns true if Value is binary.
-func (v Value) IsBinary() bool {
-	return IsBinary(v.typ)
-}
-
-// MarshalJSON should only be used for testing.
-// It's not a complete implementation.
-func (v Value) MarshalJSON() ([]byte, error) {
-	switch {
-	case v.IsQuoted() || v.typ == Bit:
-		return json.Marshal(v.ToString())
-	case v.typ == Null:
-		return nullstr, nil
-	}
-	return v.val, nil
-}
-
-// UnmarshalJSON should only be used for testing.
-// It's not a complete implementation.
-func (v *Value) UnmarshalJSON(b []byte) error {
-	if len(b) == 0 {
-		return fmt.Errorf("error unmarshaling empty bytes")
-	}
-	var val interface{}
-	var err error
-	switch b[0] {
-	case '-':
-		var ival int64
-		err = json.Unmarshal(b, &ival)
-		val = ival
-	case '"':
-		var bval []byte
-		err = json.Unmarshal(b, &bval)
-		val = bval
-	case 'n': // null
-		err = json.Unmarshal(b, &val)
-	default:
-		var uval uint64
-		err = json.Unmarshal(b, &uval)
-		val = uval
-	}
-	if err != nil {
-		return err
-	}
-	*v, err = InterfaceToValue(val)
-	return err
 }
 
 func encodeBytesSQL(val []byte, b BinWriter) {
@@ -353,16 +154,6 @@ func encodeBytesSQLBits(val []byte, b BinWriter) {
 		fmt.Fprintf(b, "%08b", ch)
 	}
 	fmt.Fprint(b, "'")
-}
-
-func encodeBytesASCII(val []byte, b BinWriter) {
-	buf := &bytes2.Buffer{}
-	buf.WriteByte('\'')
-	encoder := base64.NewEncoder(base64.StdEncoding, buf)
-	encoder.Write(val)
-	encoder.Close()
-	buf.WriteByte('\'')
-	b.Write(buf.Bytes())
 }
 
 // SQLEncodeMap specifies how to escape binary data with '\'.
