@@ -145,6 +145,13 @@ type (
 		Exprs    SetExprs
 	}
 
+	// StartTransaction
+	StartTransaction struct {
+		SQLNode
+		Comments
+		Characteristics []Characteristic
+	}
+
 	// SetTransaction represents a SET TRANSACTION statement.
 	SetTransaction struct {
 		SQLNode
@@ -278,6 +285,7 @@ func (*Insert) iStatement()            {}
 func (*Update) iStatement()            {}
 func (*Delete) iStatement()            {}
 func (*Set) iStatement()               {}
+func (*StartTransaction) iStatement()  {}
 func (*SetTransaction) iStatement()    {}
 func (*DBDDL) iStatement()             {}
 func (*DDL) iStatement()               {}
@@ -1115,6 +1123,29 @@ func (node *Set) CloneAsStatement() Statement {
 		Comments: node.Comments.Clone(),
 		Exprs:    node.Exprs.Clone(),
 	}
+}
+
+// Format formats the node.
+func (node *StartTransaction) Format(buf *TrackedBuffer) {
+	buf.astPrintf(node, "start %vtransaction ", node.Comments)
+
+	for i, char := range node.Characteristics {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.astPrintf(node, "%v", char)
+	}
+}
+
+// CloneAsStatement
+func (node *StartTransaction) CloneAsStatement() Statement {
+	newNode := &SetTransaction{
+		Comments: node.Comments.Clone(),
+	}
+	for _, v := range node.Characteristics {
+		newNode.Characteristics = append(newNode.Characteristics, v.Clone())
+	}
+	return newNode
 }
 
 // Format formats the node.

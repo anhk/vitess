@@ -5,16 +5,23 @@ import (
 	"github.com/anhk/vitess/vt/sqlparser"
 )
 
-func main() {
-	stmt, err := sqlparser.Parse("select s_phone /** 33 **/ from student where s_id = 1")
+func Parse(sql string) {
+
+	stmt, err := sqlparser.Parse(sql)
 	if err != nil {
 		panic(err)
 	}
-
-	stmtCloned := stmt.CloneAsStatement()
-	stmtCloned.(*sqlparser.Select).Where = nil
-
-	fmt.Println(sqlparser.String(stmtCloned))
 	fmt.Println(sqlparser.String(stmt))
+}
 
+func main() {
+	Parse("set session transaction isolation level read uncommitted;\n")
+	Parse("start transaction")
+	Parse("start transaction read only;")
+	Parse("commit;")
+	Parse("rollback;")
+	Parse("savepoint x;")
+	Parse("rollback to  x")
+	Parse("release savepoint x;")
+	Parse("set  autocommit  = 1;")
 }

@@ -223,7 +223,7 @@ func skipToEnd(yylex interface{}) {
 %type <statement> command
 %type <selStmt> simple_select select_statement base_select union_rhs
 %type <statement> explain_statement explainable_statement
-%type <statement> stream_statement insert_statement update_statement delete_statement set_statement set_transaction_statement
+%type <statement> stream_statement insert_statement update_statement delete_statement set_statement set_transaction_statement start_transaction_statement
 %type <statement> create_statement alter_statement rename_statement drop_statement truncate_statement flush_statement do_statement
 %type <statement> call_statement
 %type <ddl> create_table_prefix rename_list
@@ -356,6 +356,7 @@ command:
 | update_statement
 | delete_statement
 | set_statement
+| start_transaction_statement
 | set_transaction_statement
 | create_statement
 | alter_statement
@@ -579,6 +580,16 @@ set_statement:
   SET comment_opt set_list
   {
     $$ = &Set{Comments: Comments($2), Exprs: $3}
+  }
+
+start_transaction_statement:
+  START comment_opt TRANSACTION
+  {
+    $$ = &StartTransaction{Comments: Comments($2)}
+  }
+| START comment_opt TRANSACTION transaction_chars
+  {
+    $$ = &StartTransaction{Comments: Comments($2), Characteristics: $4}
   }
 
 set_transaction_statement:
@@ -1833,10 +1844,6 @@ use_statement:
 
 begin_statement:
   BEGIN
-  {
-    $$ = &Begin{}
-  }
-| START TRANSACTION
   {
     $$ = &Begin{}
   }
