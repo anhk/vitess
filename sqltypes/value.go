@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"github.com/anhk/vitess/bytes2"
 	"github.com/anhk/vitess/hack"
-
-	querypb "github.com/anhk/vitess/vt/proto/query"
 )
 
 var (
@@ -47,7 +45,7 @@ type BinWriter interface {
 // an integral type, the bytes are always stored as a canonical
 // representation that matches how MySQL returns such values.
 type Value struct {
-	typ querypb.Type
+	typ Type
 	val []byte
 }
 
@@ -58,7 +56,7 @@ type Value struct {
 // Exceptions: The current package and mysql package do not need
 // comments. Other packages can also use the function to create
 // VarBinary or VarChar values.
-func MakeTrusted(typ querypb.Type, val []byte) Value {
+func MakeTrusted(typ Type, val []byte) Value {
 
 	if typ == Null {
 		return NULL
@@ -68,7 +66,7 @@ func MakeTrusted(typ querypb.Type, val []byte) Value {
 }
 
 // Type returns the type of Value.
-func (v Value) Type() querypb.Type {
+func (v Value) Type() Type {
 	return v.typ
 }
 

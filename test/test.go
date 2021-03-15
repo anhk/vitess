@@ -24,4 +24,5 @@ func main() {
 	Parse("rollback to  x")
 	Parse("release savepoint x;")
 	Parse("set  autocommit  = 1;")
+	Parse("select `s-idx` as `s-idx` from student ")
 }
