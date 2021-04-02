@@ -709,6 +709,13 @@ type (
 		Exprs     SelectExprs
 	}
 
+	// TrimFuncExpr
+	TrimFuncExpr struct {
+		OpStr     string
+		Character Expr
+		Source    Expr
+	}
+
 	// GroupConcatExpr represents a call to GROUP_CONCAT
 	GroupConcatExpr struct {
 		Distinct  string
@@ -807,6 +814,7 @@ func (*UnaryExpr) iExpr()         {}
 func (*IntervalExpr) iExpr()      {}
 func (*CollateExpr) iExpr()       {}
 func (*FuncExpr) iExpr()          {}
+func (*TrimFuncExpr) iExpr()      {}
 func (*TimestampFuncExpr) iExpr() {}
 func (*CurTimeFuncExpr) iExpr()   {}
 func (*CaseExpr) iExpr()          {}
@@ -2553,6 +2561,23 @@ func (node *FuncExpr) CloneAsExpr() Expr {
 		newNode.Exprs = append(newNode.Exprs, v.Clone())
 	}
 	return newNode
+}
+
+// Format
+func (node *TrimFuncExpr) Format(buf *TrackedBuffer) {
+	buf.astPrintf(node, "trim(")
+	if node.OpStr != "" {
+		buf.astPrintf(node, "%s ", node.OpStr)
+	}
+	if node.Character != nil {
+		buf.astPrintf(node, "%v FROM ", node.Character)
+	}
+	buf.astPrintf(node, "%v)", node.Source)
+}
+
+// CloneAsExpr
+func (node *TrimFuncExpr) CloneAsExpr() Expr {
+	return node
 }
 
 // Format formats the node

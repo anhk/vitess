@@ -132,6 +132,7 @@ func skipToEnd(yylex interface{}) {
 %token <empty> '(' ',' ')'
 %token <bytes> ID AT_ID AT_AT_ID HEX STRING INTEGRAL FLOAT HEXNUM VALUE_ARG LIST_ARG COMMENT COMMENT_KEYWORD BIT_LITERAL
 %token <bytes> NULL TRUE FALSE OFF
+%token <bytes> TRIM LEADING BOTH TRAILING
 
 // Precedence dictated by mysql. But the vitess grammar is simplified.
 // Some of these operators don't conflict in our situation. Nevertheless,
@@ -249,6 +250,7 @@ func skipToEnd(yylex interface{}) {
 %type <indexHints> index_hint_list
 %type <expr> where_expression_opt
 %type <expr> condition
+%type <str> trim_operator
 %type <boolVal> boolean_value
 %type <str> compare
 %type <ins> insert_data
@@ -2824,10 +2826,29 @@ function_call_keyword:
   {
     $$ = &CaseExpr{Expr: $2, Whens: $3, Else: $4}
   }
+| TRIM openb trim_operator value FROM value_expression closeb
+  {
+    $$ = &TrimFuncExpr{OpStr: string($3), Character: $4, Source: $6}
+  }
+| TRIM openb value FROM value_expression closeb
+  {
+    $$ = &TrimFuncExpr{Character: $3, Source: $5}
+  }
+| TRIM openb value_expression closeb
+  {
+    $$ = &TrimFuncExpr{Source: $3}
+  }
 | VALUES openb column_name closeb
   {
     $$ = &ValuesFuncExpr{Name: $3}
   }
+
+trim_operator:
+  LEADING { $$ = "leading" }
+| BOTH { $$ = "both" }
+| TRAILING { $$ = "trailing" }
+
+
 
 /*
   Function calls using non reserved keywords but with special syntax forms.
