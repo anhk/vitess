@@ -294,6 +294,7 @@ var keywords = map[string]int{
 	"out":                 UNUSED,
 	"outer":               OUTER,
 	"outfile":             UNUSED,
+	"position":            POSITION,
 	"partition":           PARTITION,
 	"plugins":             PLUGINS,
 	"point":               POINT,

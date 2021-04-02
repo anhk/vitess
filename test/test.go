@@ -14,11 +14,12 @@ func Parse(sql string) {
 }
 
 func main() {
-	Parse("select trim(leading 'aab ' from s_name) as a from student where s_addr='世界';")
-	Parse("select trim( 'aab ' from s_name) as a from student where s_addr='世界';")
-	Parse("select trim( s_name) as a from student where s_addr='世界';")
-	Parse("select trim(leading'aab ' from s_name) as a from student where s_addr='世界';")
-	Parse("select trim(leading' 'from s_sex) as a from employee where s_addr='世界';")
-	Parse("select trim(both' 'from s_sex) from employee where s_addr='世界';")
-	Parse("select trim(trailing' 'from s_phone) as a from employee where s_addr='世界';")
+	Parse("select position('0' in s_phone) from student where s_addr='世界'")
+	//Parse("select trim(leading 'aab ' from s_name) as a from student where s_addr='世界';")
+	//Parse("select trim( 'aab ' from s_name) as a from student where s_addr='世界';")
+	//Parse("select trim( s_name) as a from student where s_addr='世界';")
+	//Parse("select trim(leading'aab ' from s_name) as a from student where s_addr='世界';")
+	//Parse("select trim(leading' 'from s_sex) as a from employee where s_addr='世界';")
+	//Parse("select trim(both' 'from s_sex) from employee where s_addr='世界';")
+	//Parse("select trim(trailing' 'from s_phone) as a from employee where s_addr='世界';")
 }

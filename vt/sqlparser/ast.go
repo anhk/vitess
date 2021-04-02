@@ -716,6 +716,12 @@ type (
 		Source    Expr
 	}
 
+	// PositionFuncExpr
+	PositionFuncExpr struct {
+		SubString Expr
+		Expr      Expr
+	}
+
 	// GroupConcatExpr represents a call to GROUP_CONCAT
 	GroupConcatExpr struct {
 		Distinct  string
@@ -815,6 +821,7 @@ func (*IntervalExpr) iExpr()      {}
 func (*CollateExpr) iExpr()       {}
 func (*FuncExpr) iExpr()          {}
 func (*TrimFuncExpr) iExpr()      {}
+func (*PositionFuncExpr) iExpr()  {}
 func (*TimestampFuncExpr) iExpr() {}
 func (*CurTimeFuncExpr) iExpr()   {}
 func (*CaseExpr) iExpr()          {}
@@ -2577,6 +2584,16 @@ func (node *TrimFuncExpr) Format(buf *TrackedBuffer) {
 
 // CloneAsExpr
 func (node *TrimFuncExpr) CloneAsExpr() Expr {
+	return node
+}
+
+// Format
+func (node *PositionFuncExpr) Format(buf *TrackedBuffer) {
+	buf.astPrintf(node, "position(%v in %v)", node.SubString, node.Expr)
+}
+
+// CloneAsExpr
+func (node *PositionFuncExpr) CloneAsExpr() Expr {
 	return node
 }
 

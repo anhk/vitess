@@ -132,7 +132,7 @@ func skipToEnd(yylex interface{}) {
 %token <empty> '(' ',' ')'
 %token <bytes> ID AT_ID AT_AT_ID HEX STRING INTEGRAL FLOAT HEXNUM VALUE_ARG LIST_ARG COMMENT COMMENT_KEYWORD BIT_LITERAL
 %token <bytes> NULL TRUE FALSE OFF
-%token <bytes> TRIM LEADING BOTH TRAILING
+%token <bytes> TRIM LEADING BOTH TRAILING POSITION
 
 // Precedence dictated by mysql. But the vitess grammar is simplified.
 // Some of these operators don't conflict in our situation. Nevertheless,
@@ -2827,17 +2827,13 @@ function_call_keyword:
     $$ = &CaseExpr{Expr: $2, Whens: $3, Else: $4}
   }
 | TRIM openb trim_operator value FROM value_expression closeb
-  {
-    $$ = &TrimFuncExpr{OpStr: string($3), Character: $4, Source: $6}
-  }
+  { $$ = &TrimFuncExpr{OpStr: string($3), Character: $4, Source: $6}}
 | TRIM openb value FROM value_expression closeb
-  {
-    $$ = &TrimFuncExpr{Character: $3, Source: $5}
-  }
+  { $$ = &TrimFuncExpr{Character: $3, Source: $5}}
 | TRIM openb value_expression closeb
-  {
-    $$ = &TrimFuncExpr{Source: $3}
-  }
+  { $$ = &TrimFuncExpr{Source: $3} }
+| POSITION openb value IN value_expression closeb
+  { $$ = &PositionFuncExpr{SubString: $3, Expr: $5 } }
 | VALUES openb column_name closeb
   {
     $$ = &ValuesFuncExpr{Name: $3}
