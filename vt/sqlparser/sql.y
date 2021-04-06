@@ -2826,6 +2826,8 @@ function_call_keyword:
   {
     $$ = &CaseExpr{Expr: $2, Whens: $3, Else: $4}
   }
+| TRIM openb trim_operator FROM value_expression closeb
+  { $$ = &TrimFuncExpr{OpStr: string($3), Character: nil, Source: $5}}
 | TRIM openb trim_operator value FROM value_expression closeb
   { $$ = &TrimFuncExpr{OpStr: string($3), Character: $4, Source: $6}}
 | TRIM openb value FROM value_expression closeb

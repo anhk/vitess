@@ -2577,7 +2577,10 @@ func (node *TrimFuncExpr) Format(buf *TrackedBuffer) {
 		buf.astPrintf(node, "%s ", node.OpStr)
 	}
 	if node.Character != nil {
-		buf.astPrintf(node, "%v FROM ", node.Character)
+		buf.astPrintf(node, "%v ", node.Character)
+	}
+	if node.OpStr != "" || node.Character != nil {
+		buf.astPrintf(node, "FROM ")
 	}
 	buf.astPrintf(node, "%v)", node.Source)
 }
